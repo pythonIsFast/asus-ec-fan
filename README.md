@@ -151,4 +151,4 @@ Keep privileged I/O isolated, preserve finite timeouts and session-owned restore
 
 ## Releases
 
-Update `VERSION`, then push the matching tag `vX.Y.Z`. GitHub Actions tests the project and builds Windows x86-64, Windows ARM64, Linux x86-64, and Linux ARM64 archives. It creates the GitHub Release only if every build succeeds. ARM64 archives are clearly marked GUI/mock-only and never claim unsupported fan access.
+GitHub Actions runs on every push, tests the project, and builds Windows x86-64, Windows ARM64, Linux x86-64, and Linux ARM64 archives. To publish them, update `VERSION`, then push the matching tag `vX.Y.Z`. It creates a GitHub Release only for that tag and only if every build succeeds. ARM64 archives are clearly marked GUI/mock-only and never claim unsupported fan access.

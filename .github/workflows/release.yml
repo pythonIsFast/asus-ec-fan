@@ -1,37 +1,37 @@
-name: Release
+name: Build and Release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  push: {}
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  metadata:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v4
       - id: version
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag must match vX.Y.Z" >&2
-            exit 1
-          fi
-          version="${tag#v}"
-          if [[ "$(tr -d '\r\n' < VERSION)" != "$version" ]]; then
-            echo "VERSION must equal $version before tagging" >&2
-            exit 1
+          version="$(tr -d '\r\n' < VERSION)"
+          release=false
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$version" != "$tag_version" ]]; then
+              echo "VERSION must equal $tag_version before tagging" >&2
+              exit 1
+            fi
+            release=true
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
 
   test:
-    needs: validate
+    needs: metadata
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
       - run: make -C helper test
 
   build:
-    needs: [validate, test]
+    needs: [metadata, test]
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +71,7 @@ jobs:
         run: make helper
       - name: Build native archive
         env:
-          ASUS_EC_FAN_VERSION: ${{ needs.validate.outputs.version }}
+          ASUS_EC_FAN_VERSION: ${{ needs.metadata.outputs.version }}
         run: python packaging/build_release.py --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
         with:
@@ -80,7 +80,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [validate, build]
+    if: needs.metadata.outputs.release == 'true'
+    needs: [metadata, build]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
