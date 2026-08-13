@@ -18,14 +18,17 @@ jobs:
         shell: bash
         run: |
           version="$(tr -d '\r\n' < VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must use X.Y.Z" >&2
+            exit 1
+          fi
           release=false
-          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            tag_version="${GITHUB_REF_NAME#v}"
-            if [[ "$version" != "$tag_version" ]]; then
-              echo "VERSION must equal $tag_version before tagging" >&2
-              exit 1
+          if [[ "$GITHUB_REF_TYPE" == "branch" && "$GITHUB_REF_NAME" == "main" ]]; then
+            if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
+              echo "v$version was already released; not publishing again"
+            else
+              release=true
             fi
-            release=true
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "release=$release" >> "$GITHUB_OUTPUT"
@@ -94,4 +97,7 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          gh release create "v$VERSION" release-assets/* \
+            --target "$GITHUB_SHA" --generate-notes --title "v$VERSION"

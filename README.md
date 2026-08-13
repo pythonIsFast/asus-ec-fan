@@ -257,14 +257,15 @@ The **Build and Release** GitHub Action runs on every push and produces native a
 - Windows x86-64
 - Windows ARM64
 
-To publish a release, update `VERSION` and push the matching tag:
+To publish a release, bump `VERSION` and push to `main` — no tag needs to be created or pushed by hand:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+echo 0.2.0 > VERSION
+git commit -am "Bump version to 0.2.0"
+git push origin main
 ```
 
-A GitHub Release is created only when the tag matches `vX.Y.Z`, agrees with `VERSION`, and every test and platform build succeeds.
+The workflow creates the `vX.Y.Z` tag and the GitHub Release itself once every test and platform build succeeds, and skips publishing again if that version was already released.
 
 ## Documentation
 
