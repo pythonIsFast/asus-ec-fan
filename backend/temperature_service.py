@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Protocol
+
+from hardware.helper_client import HardwareError
+
+
+class TemperatureReader(Protocol):
+    def get_cpu_temperature(self) -> float | None: ...
 
 
 class TemperatureService:
@@ -65,3 +72,16 @@ class TemperatureService:
                 if temperature is not None:
                     return temperature
         return None
+
+
+class WindowsAsusTemperatureService:
+    """Reads the temperature exported by the installed ASUS System Analysis DLL."""
+
+    def __init__(self, backend: object) -> None:
+        self._backend = backend
+
+    def get_cpu_temperature(self) -> float | None:
+        try:
+            return self._backend.get_cpu_temperature()
+        except (HardwareError, AttributeError):
+            return None

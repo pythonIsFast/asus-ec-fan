@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import ctypes
 import os
+import platform
 import signal
 import sys
 import threading
@@ -19,11 +21,20 @@ from backend.database import Database
 from backend.fan_service import FanService
 from backend.instance_lock import ApplicationAlreadyRunning, ApplicationLock
 from backend.profile_service import ProfileService
-from backend.temperature_service import TemperatureService
-from hardware.helper_client import NativeHelperBackend
+from backend.temperature_service import TemperatureService, WindowsAsusTemperatureService
+from hardware.helper_client import NativeHelperBackend, WindowsAsusBackend
 from hardware.mock_backend import MockFanBackend
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+
+
+def process_is_elevated() -> bool:
+    if platform.system() == "Windows":
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except (AttributeError, OSError):
+            return False
+    return hasattr(os, "geteuid") and os.geteuid() == 0
 
 
 class LocalServer:
@@ -62,8 +73,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if os.geteuid() == 0:
-        print("Refusing to run the Flask/GUI process as root.", file=sys.stderr)
+    if process_is_elevated():
+        print("Refusing to run the Flask/GUI process with administrator privileges.", file=sys.stderr)
         return 2
     if not 0 <= args.port <= 65535:
         print("Port must be between 0 and 65535.", file=sys.stderr)
@@ -73,6 +84,12 @@ def main() -> int:
     if args.mock:
         hardware = MockFanBackend()
         writes_allowed = True
+    elif platform.system() == "Windows":
+        hardware = WindowsAsusBackend(args.helper)
+        writes_allowed = is_supported_model(model) and platform.machine().upper() in {
+            "AMD64",
+            "X86_64",
+        }
     else:
         hardware = NativeHelperBackend(args.helper, use_sudo=not args.no_sudo)
         writes_allowed = is_supported_model(model)
@@ -90,7 +107,11 @@ def main() -> int:
         writes_allowed=writes_allowed,
         mock_mode=args.mock,
     )
-    temperature_service = TemperatureService()
+    temperature_service = (
+        WindowsAsusTemperatureService(hardware)
+        if platform.system() == "Windows" and not args.mock
+        else TemperatureService()
+    )
     curve_controller = CurveController(
         service,
         temperature_service,
@@ -181,7 +202,10 @@ def main() -> int:
     try:
         # The project installs pywebview's PySide6 extra. Selecting Qt explicitly
         # avoids a noisy GTK probe and keeps the isolated virtualenv self-contained.
-        webview.start(gui="qt", debug=False)
+        webview.start(
+            gui="edgechromium" if platform.system() == "Windows" else "qt",
+            debug=False,
+        )
     except WebViewException as exc:
         print(
             f"Unable to start the desktop window: {exc}\n"

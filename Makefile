@@ -3,7 +3,7 @@ VENV ?= .venv
 VENV_PYTHON := $(VENV)/bin/python
 TARGET_USER ?= $(SUDO_USER)
 
-.PHONY: all setup helper test run mock install-helper authorize-user hardware-test clean
+.PHONY: all setup helper test run mock install-helper authorize-user hardware-test release clean
 
 all: helper
 
@@ -49,6 +49,9 @@ hardware-test:
 	@echo "Read-only EC helper checks"
 	helper/asus-ec-fan-helper status
 	helper/asus-ec-fan-helper fan-count
+
+release: helper
+	$(VENV_PYTHON) packaging/build_release.py --target linux-x86_64
 
 clean:
 	$(MAKE) -C helper clean

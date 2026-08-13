@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable
 
 from .fan_service import FanService, FanServiceError
-from .temperature_service import TemperatureService
+from .temperature_service import TemperatureReader
 
 
 class CurveError(RuntimeError):
@@ -75,7 +75,7 @@ class CurveController:
     def __init__(
         self,
         fan_service: FanService,
-        temperature_service: TemperatureService,
+        temperature_service: TemperatureReader,
         interval_seconds: Callable[[], float],
     ) -> None:
         self._fan_service = fan_service

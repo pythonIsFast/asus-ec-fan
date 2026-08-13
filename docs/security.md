@@ -4,7 +4,7 @@ Embedded-controller access can hang a machine, defeat thermal policy, or damage 
 
 ## Unprivileged desktop process
 
-The Flask server and pywebview window refuse to run as root. They do not call Linux port-I/O APIs. Only the small native helper obtains access to exactly the contiguous ports `0x25c` and `0x25d` with `ioperm()`.
+The Flask server and pywebview window refuse to run as root or as a Windows administrator. They do not call Linux port-I/O APIs. Only the small native helper obtains access to exactly the contiguous ports `0x25c` and `0x25d` with `ioperm()`.
 
 Do not make the helper setuid. The supported installation uses a root-owned binary, a dedicated `asus-ec-fan` group, and a narrow validated `sudoers` entry. The Python client calls it with `sudo -n`, so the GUI never opens an interactive privilege prompt or retains root privileges.
 
@@ -24,6 +24,14 @@ restore <fan>
 There is no raw port, packet, register, or command interface. Arguments are decimal integers with tight bounds, fan indices are checked against the live verified fan count, and the helper independently checks DMI before either write command. Helper processes take an exclusive root-owned lock so two application requests cannot interleave. Mode-changing commands are read back before success is returned. Errors are JSON. Each invocation drops I/O permission before exiting.
 
 The sudo rule trusts this helper's restricted parser, so the installed binary and its parent directory must remain root-owned and not writable by ordinary users. The Python client checks the installed file type, executable bit, ownership, and write permissions before invoking sudo; it never automatically elevates the build artifact in the user-writable project directory.
+
+## Windows driver boundary
+
+Windows uses a separate frozen helper process. It exposes only `status`, `fan-count`, `rpm`, `temperature`, `set`, and `restore`; there is no raw port, DLL-export, packet, or command endpoint. It validates fan indices and percentages, serializes operations with a finite-timeout named mutex, and preserves the known restore order.
+
+The proprietary `AsusWinIO64.dll` is never redistributed or downloaded. The helper searches only the official `asussci2.inf_amd64_*` DriverStore package and requires a valid ASUSTeK Authenticode signature. Windows ARM64 rejects real access because the known DLL is AMD64. The Flask/pywebview process stays unprivileged.
+
+Because the known DLL API cannot read test mode, manual control is blocked until an explicit Restore establishes a firmware baseline. Clean shutdown restores only a later manual state owned by this process.
 
 ## Local HTTP API
 

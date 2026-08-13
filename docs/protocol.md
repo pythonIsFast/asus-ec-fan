@@ -88,6 +88,8 @@ The critical verified action is disabling ASUS test mode. The working legacy imp
 - The final OBF wait for a one-byte read uses the working implementation's approximately 5 ms window and retries the complete read transaction once on that final timeout.
 - The helper re-reads fan count before every fan-specific command to validate the index against current hardware state.
 - Helper processes serialize access with `/run/lock/asus-ec-fan.lock`. This cannot serialize against firmware or kernel EC users.
+- Windows x86-64 uses only named fan/temperature exports from the officially installed, ASUS-signed System Analysis DLL. This alternate driver boundary is based on the public AsusFanControl implementation; it is not evidence for additional raw EC commands.
+- The known Windows DLL has a test-mode setter but no known getter. Mode starts unknown, Apply is blocked, and explicit Restore establishes a process-local firmware baseline.
 
 ## Unknown
 
@@ -95,3 +97,5 @@ The critical verified action is disabling ASUS test mode. The working legacy imp
 - Multi-fan behavior has not been verified on the initial machine.
 - Crash and power-loss recovery cannot be guaranteed. Clean shutdown performs session-owned restoration.
 - No additional EC commands, registers, fan curves, or diagnostic modes are known or permitted.
+- The proprietary Windows DLL's internal EC protocol is unknown and is not inferred here.
+- The ASUS AMD64 driver does not establish Windows ARM64 hardware support. ARM64 packages are GUI/mock-only.

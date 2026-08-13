@@ -12,13 +12,13 @@ from .database import Database
 from .curve_service import CurveController, CurveError
 from .fan_service import FanService, FanServiceError
 from .profile_service import ProfileError, ProfileService
-from .temperature_service import TemperatureService
+from .temperature_service import TemperatureReader
 
 
 def create_app(
     fan_service: FanService,
     database: Database,
-    temperature_service: TemperatureService,
+    temperature_service: TemperatureReader,
     frontend_dir: str | Path,
     curve_controller: CurveController,
     profile_service: ProfileService,

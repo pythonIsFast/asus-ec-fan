@@ -57,6 +57,7 @@ class FanService:
             "supported": self.writes_allowed or self.mock_mode,
             "writes_allowed": self.writes_allowed,
             "mock_mode": self.mock_mode,
+            "backend": self.backend.backend_name,
         }
 
     def get_ec_status(self) -> dict[str, Any]:
@@ -65,11 +66,15 @@ class FanService:
                 status = self.backend.get_status()
             except HardwareError as exc:
                 raise self._hardware_error(exc) from exc
-            return {
-                "status": int(status.get("status", 0)),
-                "obf": bool(status.get("obf", False)),
-                "ibf": bool(status.get("ibf", False)),
+            raw_status = status.get("status")
+            result = {
+                "status": int(raw_status) if isinstance(raw_status, int) else None,
+                "obf": bool(status["obf"]) if "obf" in status else None,
+                "ibf": bool(status["ibf"]) if "ibf" in status else None,
             }
+            if "source" in status:
+                result["source"] = str(status["source"])
+            return result
 
     def _get_validated_fan(self, fan: int) -> dict[str, Any]:
         try:
@@ -80,7 +85,7 @@ class FanService:
         return {
             "id": fan,
             "rpm": rpm,
-            "mode": "manual" if manual else "firmware",
+            "mode": "unknown" if manual is None else ("manual" if manual else "firmware"),
             "test_mode": manual,
             "percent": self._manual_percent.get(fan) if manual else None,
             "session_owned": fan in self._session_owned_fans,
@@ -112,6 +117,13 @@ class FanService:
                 was_manual = self.backend.get_test_mode(fan)
             except HardwareError as exc:
                 raise self._hardware_error(exc) from exc
+            if was_manual is None:
+                raise FanServiceError(
+                    "MODE_BASELINE_REQUIRED",
+                    "The ASUS Windows interface cannot read test mode. Explicitly restore "
+                    "firmware control once before enabling manual control.",
+                    409,
+                )
             if not was_manual:
                 self._session_owned_fans.add(fan)
             try:
@@ -144,7 +156,7 @@ class FanService:
                 "fan": fan,
                 "mode": "manual",
                 "percent": value,
-                "verified": True,
+                "verified": self.backend.mode_readback_available,
             }
 
     def restore(self, fan_index: object) -> dict[str, Any]:
@@ -169,7 +181,12 @@ class FanService:
                 )
             self._session_owned_fans.discard(fan)
             self._manual_percent.pop(fan, None)
-            return {"ok": True, "fan": fan, "mode": "firmware", "verified": True}
+            return {
+                "ok": True,
+                "fan": fan,
+                "mode": "firmware",
+                "verified": self.backend.mode_readback_available,
+            }
 
     def restore_session_owned(self) -> list[dict[str, Any]]:
         failures: list[dict[str, Any]] = []

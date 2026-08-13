@@ -23,6 +23,9 @@ class HardwareError(RuntimeError):
 
 
 class FanHardwareBackend(ABC):
+    backend_name = "unknown"
+    mode_readback_available = True
+
     @abstractmethod
     def get_status(self) -> dict[str, Any]: ...
 
@@ -33,7 +36,7 @@ class FanHardwareBackend(ABC):
     def get_rpm(self, fan_index: int) -> int: ...
 
     @abstractmethod
-    def get_test_mode(self, fan_index: int) -> bool: ...
+    def get_test_mode(self, fan_index: int) -> bool | None: ...
 
     @abstractmethod
     def set_percent(self, fan_index: int, percent: int) -> None: ...
@@ -44,6 +47,8 @@ class FanHardwareBackend(ABC):
 
 class NativeHelperBackend(FanHardwareBackend):
     """Calls only the helper's fixed, validated command vocabulary."""
+
+    backend_name = "Linux native EC helper"
 
     def __init__(
         self,
@@ -156,3 +161,45 @@ class NativeHelperBackend(FanHardwareBackend):
 
     def restore(self, fan_index: int) -> None:
         self._run(["restore", str(fan_index)])
+
+
+class WindowsAsusBackend(NativeHelperBackend):
+    """Calls the isolated helper that uses an official installed ASUS DLL."""
+
+    backend_name = "ASUS System Analysis"
+    mode_readback_available = False
+
+    def __init__(self, helper_path: str | Path, *, timeout_seconds: float = 5.0) -> None:
+        super().__init__(
+            helper_path,
+            use_sudo=False,
+            timeout_seconds=timeout_seconds,
+            validate_installation=False,
+        )
+        self._known_test_modes: dict[int, bool] = {}
+
+    def _check_installation(self) -> None:
+        if not self._path.is_file():
+            raise HardwareError(
+                "WINDOWS_HELPER_UNAVAILABLE",
+                "The Windows ASUS helper is missing; reinstall ASUS EC Fan",
+            )
+
+    def get_test_mode(self, fan_index: int) -> bool | None:
+        return self._known_test_modes.get(fan_index)
+
+    def set_percent(self, fan_index: int, percent: int) -> None:
+        value = validate_percent(percent)
+        self._run(["set", str(fan_index), str(value)])
+        self._known_test_modes[fan_index] = True
+
+    def restore(self, fan_index: int) -> None:
+        self._run(["restore", str(fan_index)])
+        self._known_test_modes[fan_index] = False
+
+    def get_cpu_temperature(self) -> float | None:
+        value = self._run(["temperature"]).get("cpu_temperature")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        temperature = float(value)
+        return round(temperature, 1) if -20.0 <= temperature <= 150.0 else None

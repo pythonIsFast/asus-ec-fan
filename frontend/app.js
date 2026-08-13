@@ -406,15 +406,21 @@ function drawChart() {
 
 function updateModeElements(fan) {
   const manual = fan?.mode === "manual";
-  const modeText = fan ? (manual ? "Manual" : "Firmware") : "Unavailable";
+  const modeText = fan
+    ? fan.mode === "unknown" ? "Unknown" : (manual ? "Manual" : "Firmware")
+    : "Unavailable";
   elements.mode.textContent = modeText;
   elements.controlMode.textContent = modeText;
-  elements.sensorMode.textContent = fan ? (manual ? "Enabled" : "Disabled") : "—";
+  elements.sensorMode.textContent = fan
+    ? fan.mode === "unknown" ? "Unknown" : (manual ? "Enabled" : "Disabled")
+    : "—";
   elements.modeDot.classList.toggle("is-manual", manual);
   elements.controlModeDot.classList.toggle("is-manual", manual);
   elements.sessionOwnership.textContent = fan?.session_owned ? "This session" : "No";
   elements.modeDetail.textContent = fan
-    ? manual
+    ? fan.mode === "unknown"
+      ? "Restore firmware once to establish a safe Windows control baseline"
+      : manual
       ? fan.percent == null ? "ASUS test mode active · duty unknown" : `Manual duty applied at ${fan.percent}%`
       : "ASUS firmware dynamically controls the fan"
     : lastStatus?.hardware_error?.message || "No fan data";
@@ -431,7 +437,7 @@ function renderStatus(data) {
   elements.device.textContent = device.model;
   elements.sidebarDevice.textContent = device.model;
   elements.controlDevice.textContent = device.model;
-  elements.backendMode.textContent = device.mock_mode ? "Mock hardware" : "Native EC helper";
+  elements.backendMode.textContent = device.backend;
   elements.cpu.textContent = temperature ?? "—";
   elements.sensorCpu.textContent = `${temperature ?? "—"} °C`;
   elements.support.textContent = device.mock_mode
@@ -451,11 +457,15 @@ function renderStatus(data) {
   }
   updateModeElements(fan);
   setControlsEnabled(device.writes_allowed && Boolean(fan) && !data.hardware_error);
+  if (fan?.mode === "unknown") {
+    elements.apply.disabled = true;
+    elements.startCurve.disabled = true;
+  }
   renderCurveStatus(data.curve_controller);
   renderProfiles(data.profiles);
-  elements.sensorEcStatus.textContent = data.ec
+  elements.sensorEcStatus.textContent = Number.isInteger(data.ec?.status)
     ? `0x${data.ec.status.toString(16).padStart(2, "0")} · OBF ${data.ec.obf ? "1" : "0"} · IBF ${data.ec.ibf ? "1" : "0"}`
-    : "—";
+    : data.ec ? `${data.ec.source} ready` : "—";
 
   elements.badge.innerHTML = `<span class="status-dot"></span>${online ? "Live" : "Hardware unavailable"}`;
   elements.badge.className = `status-pill ${online ? "is-online" : "is-error"}`;
@@ -605,12 +615,17 @@ async function applyManual() {
   elements.apply.disabled = true;
   try {
     const percent = Number.parseInt(elements.slider.value, 10);
-    await api(`/api/fans/${selectedFan}/manual`, {
+    const result = await api(`/api/fans/${selectedFan}/manual`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ percent }),
     });
-    showMessage(`Fan ${selectedFan} set to ${percent}% and verified.`, "success");
+    showMessage(
+      result.verified
+        ? `Fan ${selectedFan} set to ${percent}% and verified.`
+        : `Fan ${selectedFan} set to ${percent}% through the ASUS driver.`,
+      "success",
+    );
     await refresh();
   } catch (error) {
     showMessage(error.message, "error");

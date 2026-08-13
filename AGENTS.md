@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This project controls the CPU fan on verified ASUS laptops under Linux.
+This project controls the CPU fan on verified ASUS laptops under Linux and Windows.
 
 Read `docs/protocol.md` before touching EC communication code.
 
@@ -30,5 +30,7 @@ Follow this workflow for every implementation task, in exactly this order:
 - Hardware tests must require explicit root invocation.
 - Preserve session-owned restore-to-firmware behavior.
 - Keep privileged hardware access isolated in the native helper.
+- Never bundle, download, or replace the proprietary ASUS Windows DLL.
+- Keep Windows driver access isolated in the narrow helper and require signature verification.
 - Keep the GUI and Flask process unprivileged and localhost-only.
 - Run `make test` before finishing.

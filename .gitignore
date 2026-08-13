@@ -6,3 +6,7 @@ helper/asus-ec-fan-helper
 helper/test-asus-ec-protocol
 data/*.db
 data/*.db-*
+build/
+dist/
+release/
+*.spec

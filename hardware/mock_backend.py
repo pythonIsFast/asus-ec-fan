@@ -9,6 +9,8 @@ from .protocol import validate_fan_index, validate_percent
 
 
 class MockFanBackend(FanHardwareBackend):
+    backend_name = "Mock hardware"
+
     def __init__(self, fan_count: int = 1, rpm: int = 3800) -> None:
         if not 1 <= fan_count <= 8:
             raise ValueError("Mock fan count must be between 1 and 8")
