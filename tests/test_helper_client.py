@@ -1,5 +1,6 @@
 import json
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -31,7 +32,14 @@ def test_native_helper_uses_only_named_command(monkeypatch):
         "/safe/helper", use_sudo=True, validate_installation=False
     )
     backend.set_percent(0, 60)
-    assert observed[0][0] == ["sudo", "-n", "/safe/helper", "set", "0", "60"]
+    assert observed[0][0] == [
+        "sudo",
+        "-n",
+        str(Path("/safe/helper")),
+        "set",
+        "0",
+        "60",
+    ]
     assert "shell" not in observed[0][1]
 
 
