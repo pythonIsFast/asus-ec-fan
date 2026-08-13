@@ -5,6 +5,7 @@
 
 #define ASUS_EC_DATA_PORT 0x25c
 #define ASUS_EC_COMMAND_PORT 0x25d
+#define ASUS_EC_WAKE_COMMAND 0xff
 #define ASUS_EC_COMMAND 0xdd
 
 typedef enum {
@@ -13,7 +14,8 @@ typedef enum {
     ASUS_EC_ERR_TIMEOUT_IBF,
     ASUS_EC_ERR_TIMEOUT_OBF,
     ASUS_EC_ERR_DRAIN,
-    ASUS_EC_ERR_PROTOCOL
+    ASUS_EC_ERR_PROTOCOL,
+    ASUS_EC_ERR_VERIFY
 } asus_ec_result;
 
 asus_ec_result asus_ec_open(void);

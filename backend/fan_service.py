@@ -60,37 +60,40 @@ class FanService:
         }
 
     def get_ec_status(self) -> dict[str, Any]:
+        with self._lock:
+            try:
+                status = self.backend.get_status()
+            except HardwareError as exc:
+                raise self._hardware_error(exc) from exc
+            return {
+                "status": int(status.get("status", 0)),
+                "obf": bool(status.get("obf", False)),
+                "ibf": bool(status.get("ibf", False)),
+            }
+
+    def _get_validated_fan(self, fan: int) -> dict[str, Any]:
         try:
-            status = self.backend.get_status()
+            rpm = self.backend.get_rpm(fan)
+            manual = self.backend.get_test_mode(fan)
         except HardwareError as exc:
             raise self._hardware_error(exc) from exc
         return {
-            "status": int(status.get("status", 0)),
-            "obf": bool(status.get("obf", False)),
-            "ibf": bool(status.get("ibf", False)),
+            "id": fan,
+            "rpm": rpm,
+            "mode": "manual" if manual else "firmware",
+            "test_mode": manual,
+            "percent": self._manual_percent.get(fan) if manual else None,
+            "session_owned": fan in self._session_owned_fans,
         }
 
     def get_fan(self, fan_index: object) -> dict[str, Any]:
         with self._lock:
-            fan = self._validate_fan(fan_index)
-            try:
-                rpm = self.backend.get_rpm(fan)
-                manual = self.backend.get_test_mode(fan)
-            except HardwareError as exc:
-                raise self._hardware_error(exc) from exc
-            return {
-                "id": fan,
-                "rpm": rpm,
-                "mode": "manual" if manual else "firmware",
-                "test_mode": manual,
-                "percent": self._manual_percent.get(fan) if manual else None,
-                "session_owned": fan in self._session_owned_fans,
-            }
+            return self._get_validated_fan(self._validate_fan(fan_index))
 
     def get_fans(self) -> list[dict[str, Any]]:
         with self._lock:
             count = self._fan_count()
-            return [self.get_fan(index) for index in range(count)]
+            return [self._get_validated_fan(index) for index in range(count)]
 
     def set_manual(self, fan_index: object, percent: object) -> dict[str, Any]:
         if not self.writes_allowed:
@@ -113,6 +116,7 @@ class FanService:
                 self._session_owned_fans.add(fan)
             try:
                 self.backend.set_percent(fan, value)
+                enabled = self.backend.get_test_mode(fan)
             except HardwareError as exc:
                 if not was_manual:
                     try:
@@ -122,8 +126,26 @@ class FanService:
                     else:
                         self._session_owned_fans.discard(fan)
                 raise self._hardware_error(exc) from exc
+            if not enabled:
+                try:
+                    self.backend.restore(fan)
+                except HardwareError:
+                    pass
+                else:
+                    self._session_owned_fans.discard(fan)
+                raise FanServiceError(
+                    "EC_VERIFY_FAILED",
+                    "The EC did not confirm manual fan control",
+                    503,
+                )
             self._manual_percent[fan] = value
-            return {"ok": True, "fan": fan, "mode": "manual", "percent": value}
+            return {
+                "ok": True,
+                "fan": fan,
+                "mode": "manual",
+                "percent": value,
+                "verified": True,
+            }
 
     def restore(self, fan_index: object) -> dict[str, Any]:
         if not self.writes_allowed:
@@ -136,11 +158,18 @@ class FanService:
             fan = self._validate_fan(fan_index)
             try:
                 self.backend.restore(fan)
+                still_manual = self.backend.get_test_mode(fan)
             except HardwareError as exc:
                 raise self._hardware_error(exc) from exc
+            if still_manual:
+                raise FanServiceError(
+                    "EC_VERIFY_FAILED",
+                    "The EC still reports manual test mode after restore",
+                    503,
+                )
             self._session_owned_fans.discard(fan)
             self._manual_percent.pop(fan, None)
-            return {"ok": True, "fan": fan, "mode": "firmware"}
+            return {"ok": True, "fan": fan, "mode": "firmware", "verified": True}
 
     def restore_session_owned(self) -> list[dict[str, Any]]:
         failures: list[dict[str, Any]] = []

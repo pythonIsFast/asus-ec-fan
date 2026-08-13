@@ -22,6 +22,7 @@ def test_manual_transition_and_explicit_restore():
         "fan": 0,
         "mode": "manual",
         "percent": 60,
+        "verified": True,
     }
     fan = service.get_fan(0)
     assert fan["mode"] == "manual"
@@ -50,7 +51,11 @@ def test_shutdown_restores_owned_mode():
     service.set_manual(0, 70)
     backend.operations.clear()
     service.restore_session_owned()
-    assert backend.operations == [("select", 0), ("disable-test-mode", 0)]
+    assert backend.operations == [
+        ("select", 0),
+        ("disable-test-mode", 0),
+        ("set-pwm", 0, 0),
+    ]
 
 
 def test_unknown_hardware_blocks_write_before_hardware_change():
@@ -86,5 +91,39 @@ def test_failed_manual_transition_attempts_restore():
     with pytest.raises(FanServiceError):
         service.set_manual(0, 60)
     assert backend.test_modes[0] is False
-    assert backend.operations[-2:] == [("select", 0), ("disable-test-mode", 0)]
+    assert backend.operations[-3:] == [
+        ("select", 0),
+        ("disable-test-mode", 0),
+        ("set-pwm", 0, 0),
+    ]
     assert service.restore_session_owned() == []
+
+
+def test_manual_success_is_rejected_when_mode_does_not_change():
+    class IgnoresManualWrite(MockFanBackend):
+        def set_percent(self, fan_index, percent):
+            self.operations.extend(
+                [("select", fan_index), ("enable-ignored", fan_index), ("set-pwm", fan_index, percent)]
+            )
+
+    backend = IgnoresManualWrite()
+    service = make_service(backend)
+    with pytest.raises(FanServiceError) as caught:
+        service.set_manual(0, 60)
+    assert caught.value.code == "EC_VERIFY_FAILED"
+    assert backend.test_modes[0] is False
+    assert service.restore_session_owned() == []
+
+
+def test_restore_success_is_rejected_while_test_mode_remains_enabled():
+    class IgnoresRestore(MockFanBackend):
+        def restore(self, fan_index):
+            self.operations.append(("restore-ignored", fan_index))
+
+    backend = IgnoresRestore()
+    service = make_service(backend)
+    service.set_manual(0, 60)
+    with pytest.raises(FanServiceError) as caught:
+        service.restore(0)
+    assert caught.value.code == "EC_VERIFY_FAILED"
+    assert service.get_fan(0)["session_owned"] is True

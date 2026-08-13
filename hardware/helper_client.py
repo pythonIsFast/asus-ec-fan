@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Sequence
 
 from .protocol import validate_percent
+
+HELPER_API_VERSION = 2
 
 
 class HardwareError(RuntimeError):
@@ -46,15 +50,45 @@ class NativeHelperBackend(FanHardwareBackend):
         helper_path: str | Path,
         *,
         use_sudo: bool = True,
-        timeout_seconds: float = 2.0,
+        timeout_seconds: float = 5.0,
+        validate_installation: bool = True,
     ) -> None:
         path = Path(helper_path).expanduser()
+        self._path = path
+        self._use_sudo = use_sudo
+        self._validate_installation = validate_installation
         self._prefix: list[str] = [str(path)]
         if use_sudo:
             self._prefix = ["sudo", "-n", str(path)]
         self._timeout_seconds = timeout_seconds
 
+    def _check_installation(self) -> None:
+        if not self._validate_installation:
+            return
+        try:
+            helper_stat = self._path.stat()
+        except OSError as exc:
+            raise HardwareError(
+                "HELPER_UNAVAILABLE",
+                "The privileged EC helper is not installed; run 'make helper', "
+                "then 'sudo make install-helper'",
+            ) from exc
+        if not stat.S_ISREG(helper_stat.st_mode) or not os.access(self._path, os.X_OK):
+            raise HardwareError(
+                "HELPER_UNSAFE_INSTALLATION",
+                "The configured EC helper is not an executable regular file",
+            )
+        if self._use_sudo and (
+            helper_stat.st_uid != 0 or helper_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        ):
+            raise HardwareError(
+                "HELPER_UNSAFE_INSTALLATION",
+                "The privileged EC helper must be root-owned and not writable by "
+                "group or other users; run 'sudo make install-helper'",
+            )
+
     def _run(self, arguments: Sequence[str]) -> dict[str, Any]:
+        self._check_installation()
         command = [*self._prefix, *arguments]
         try:
             completed = subprocess.run(
@@ -75,7 +109,16 @@ class NativeHelperBackend(FanHardwareBackend):
         try:
             payload = json.loads(output)
         except (json.JSONDecodeError, TypeError) as exc:
-            detail = completed.stderr.strip() or "Helper returned invalid output"
+            stderr = completed.stderr.strip()
+            if completed.returncode != 0 and (
+                "password" in stderr.lower() or "sudoers" in stderr.lower()
+            ):
+                raise HardwareError(
+                    "PRIVILEGE_NOT_CONFIGURED",
+                    "The EC helper is not authorized for passwordless sudo; "
+                    "run 'sudo make install-helper'",
+                ) from exc
+            detail = stderr or "Helper returned invalid output"
             raise HardwareError("HELPER_INVALID_RESPONSE", detail) from exc
 
         if not isinstance(payload, dict) or payload.get("ok") is not True:
@@ -87,6 +130,12 @@ class NativeHelperBackend(FanHardwareBackend):
             raise HardwareError(code, message)
         if completed.returncode != 0:
             raise HardwareError("HELPER_FAILED", "Helper exited unsuccessfully")
+        if payload.get("helper_api") != HELPER_API_VERSION:
+            raise HardwareError(
+                "HELPER_VERSION_MISMATCH",
+                "The installed EC helper is outdated; rebuild it and run "
+                "'sudo make install-helper'",
+            )
         return payload
 
     def get_status(self) -> dict[str, Any]:

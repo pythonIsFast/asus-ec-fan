@@ -13,8 +13,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "telemetry_enabled": False,
     "telemetry_retention_days": 7,
     "last_selected_fan": 0,
-    "window_width": 720,
-    "window_height": 640,
+    "window_width": 1120,
+    "window_height": 760,
 }
 
 
@@ -82,7 +82,42 @@ class Database:
                     event_type TEXT NOT NULL,
                     details_json TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS profiles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    mode TEXT NOT NULL CHECK(mode IN ('firmware', 'manual', 'curve')),
+                    percent INTEGER,
+                    curve_json TEXT,
+                    built_in INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
+            )
+            now = datetime.now(UTC).isoformat()
+            connection.executemany(
+                """INSERT OR IGNORE INTO profiles
+                   (name, mode, percent, curve_json, built_in, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 1, ?, ?)""",
+                [
+                    ("Balanced", "firmware", None, None, now, now),
+                    ("Fixed 60%", "manual", 60, None, now, now),
+                    (
+                        "Temperature curve",
+                        "curve",
+                        None,
+                        json.dumps(
+                            [
+                                {"temperature": 45, "percent": 30},
+                                {"temperature": 60, "percent": 50},
+                                {"temperature": 75, "percent": 75},
+                                {"temperature": 90, "percent": 100},
+                            ]
+                        ),
+                        now,
+                        now,
+                    ),
+                ],
             )
 
     def get_settings(self) -> dict[str, Any]:
@@ -139,3 +174,65 @@ class Database:
                 (safe_limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    @staticmethod
+    def _profile_row(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "mode": row["mode"],
+            "percent": row["percent"],
+            "curve_points": json.loads(row["curve_json"]) if row["curve_json"] else None,
+            "built_in": bool(row["built_in"]),
+        }
+
+    def get_profiles(self) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT id, name, mode, percent, curve_json, built_in
+                   FROM profiles ORDER BY built_in DESC, id ASC"""
+            ).fetchall()
+        return [self._profile_row(row) for row in rows]
+
+    def get_profile(self, profile_id: int) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT id, name, mode, percent, curve_json, built_in
+                   FROM profiles WHERE id = ?""",
+                (profile_id,),
+            ).fetchone()
+        return self._profile_row(row) if row else None
+
+    def create_profile(
+        self,
+        name: str,
+        mode: str,
+        percent: int | None,
+        curve_points: list[dict[str, int]] | None,
+    ) -> dict[str, Any]:
+        now = datetime.now(UTC).isoformat()
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                """INSERT INTO profiles
+                   (name, mode, percent, curve_json, built_in, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 0, ?, ?)""",
+                (
+                    name,
+                    mode,
+                    percent,
+                    json.dumps(curve_points) if curve_points is not None else None,
+                    now,
+                    now,
+                ),
+            )
+            profile_id = cursor.lastrowid
+        profile = self.get_profile(int(profile_id))
+        assert profile is not None
+        return profile
+
+    def delete_profile(self, profile_id: int) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM profiles WHERE id = ? AND built_in = 0", (profile_id,)
+            )
+        return cursor.rowcount > 0

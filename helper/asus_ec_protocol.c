@@ -10,10 +10,23 @@
 
 #define OBF_BIT 0x01
 #define IBF_BIT 0x02
-#define TIMEOUT_NS 200000000L
-#define POLL_NS 50000L
-#define MAX_POLL_ATTEMPTS (TIMEOUT_NS / POLL_NS)
-#define MAX_DRAIN_BYTES 64
+#define POLL_NS 100000L
+#define IBF_MAX_POLLS 1000U
+#define OBF_MAX_POLLS 50U
+#define DRAIN_MAX_POLLS 1000U
+
+#ifdef ASUS_EC_TESTING
+extern int asus_ec_test_ioperm(unsigned long from, unsigned long count, int turn_on);
+extern unsigned char asus_ec_test_inb(unsigned short port);
+extern void asus_ec_test_outb(unsigned char value, unsigned short port);
+#define PORT_IOPERM asus_ec_test_ioperm
+#define PORT_IN asus_ec_test_inb
+#define PORT_OUT asus_ec_test_outb
+#else
+#define PORT_IOPERM ioperm
+#define PORT_IN inb
+#define PORT_OUT outb
+#endif
 
 static bool io_open;
 
@@ -23,9 +36,10 @@ static void poll_pause(void) {
 }
 
 static asus_ec_result wait_for_status(uint8_t mask, bool set,
+                                      unsigned int max_polls,
                                       asus_ec_result timeout_error) {
-    for (long attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
-        const bool is_set = (inb(ASUS_EC_COMMAND_PORT) & mask) != 0;
+    for (unsigned int attempt = 0; attempt < max_polls; attempt++) {
+        const bool is_set = (PORT_IN(ASUS_EC_COMMAND_PORT) & mask) != 0;
         if (is_set == set) {
             return ASUS_EC_OK;
         }
@@ -35,51 +49,52 @@ static asus_ec_result wait_for_status(uint8_t mask, bool set,
 }
 
 static asus_ec_result drain_output_buffer(void) {
-    unsigned int drained = 0;
-
-    while ((inb(ASUS_EC_COMMAND_PORT) & OBF_BIT) != 0) {
-        (void)inb(ASUS_EC_DATA_PORT);
-        drained++;
-        if (drained >= MAX_DRAIN_BYTES) {
-            return ASUS_EC_ERR_DRAIN;
+    for (unsigned int attempt = 0; attempt < DRAIN_MAX_POLLS; attempt++) {
+        if ((PORT_IN(ASUS_EC_COMMAND_PORT) & OBF_BIT) == 0) {
+            return ASUS_EC_OK;
         }
+        (void)PORT_IN(ASUS_EC_DATA_PORT);
         poll_pause();
     }
-    return ASUS_EC_OK;
+    return ASUS_EC_ERR_DRAIN;
 }
 
 static asus_ec_result write_command(uint8_t value) {
     asus_ec_result result =
-        wait_for_status(IBF_BIT, false, ASUS_EC_ERR_TIMEOUT_IBF);
+        wait_for_status(IBF_BIT, false, IBF_MAX_POLLS, ASUS_EC_ERR_TIMEOUT_IBF);
     if (result != ASUS_EC_OK) {
         return result;
     }
-    outb(value, ASUS_EC_COMMAND_PORT);
+    PORT_OUT(value, ASUS_EC_COMMAND_PORT);
     return ASUS_EC_OK;
 }
 
 static asus_ec_result write_data(uint8_t value) {
     asus_ec_result result =
-        wait_for_status(IBF_BIT, false, ASUS_EC_ERR_TIMEOUT_IBF);
+        wait_for_status(IBF_BIT, false, IBF_MAX_POLLS, ASUS_EC_ERR_TIMEOUT_IBF);
     if (result != ASUS_EC_OK) {
         return result;
     }
-    outb(value, ASUS_EC_DATA_PORT);
+    PORT_OUT(value, ASUS_EC_DATA_PORT);
     return ASUS_EC_OK;
 }
 
 static asus_ec_result read_data(uint8_t *value) {
     asus_ec_result result =
-        wait_for_status(OBF_BIT, true, ASUS_EC_ERR_TIMEOUT_OBF);
+        wait_for_status(OBF_BIT, true, OBF_MAX_POLLS, ASUS_EC_ERR_TIMEOUT_OBF);
     if (result != ASUS_EC_OK) {
         return result;
     }
-    *value = inb(ASUS_EC_DATA_PORT);
+    *value = PORT_IN(ASUS_EC_DATA_PORT);
     return ASUS_EC_OK;
 }
 
-static asus_ec_result transaction(const uint8_t payload[3], uint8_t *reply) {
+static asus_ec_result write_transaction(const uint8_t payload[3]) {
     asus_ec_result result = drain_output_buffer();
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    result = write_command(ASUS_EC_WAKE_COMMAND);
     if (result != ASUS_EC_OK) {
         return result;
     }
@@ -93,15 +108,33 @@ static asus_ec_result transaction(const uint8_t payload[3], uint8_t *reply) {
             return result;
         }
     }
-    if (reply != NULL) {
-        return read_data(reply);
+    return wait_for_status(IBF_BIT, false, IBF_MAX_POLLS,
+                           ASUS_EC_ERR_TIMEOUT_IBF);
+}
+
+static asus_ec_result read_transaction(const uint8_t payload[3], uint8_t *reply) {
+    if (reply == NULL) {
+        return ASUS_EC_ERR_PROTOCOL;
     }
-    return wait_for_status(IBF_BIT, false, ASUS_EC_ERR_TIMEOUT_IBF);
+    for (unsigned int attempt = 0; attempt < 2; attempt++) {
+        asus_ec_result result = write_transaction(payload);
+        if (result != ASUS_EC_OK) {
+            return result;
+        }
+        result = read_data(reply);
+        if (result == ASUS_EC_OK) {
+            return ASUS_EC_OK;
+        }
+        if (result != ASUS_EC_ERR_TIMEOUT_OBF) {
+            return result;
+        }
+    }
+    return ASUS_EC_ERR_TIMEOUT_OBF;
 }
 
 static asus_ec_result select_fan(uint8_t fan) {
     const uint8_t payload[3] = {0x82, 0x32, fan};
-    return transaction(payload, NULL);
+    return write_transaction(payload);
 }
 
 static asus_ec_result validate_fan(uint8_t fan) {
@@ -116,25 +149,16 @@ static asus_ec_result validate_fan(uint8_t fan) {
     return ASUS_EC_OK;
 }
 
-static asus_ec_result read_fan_value(uint8_t fan, uint8_t operation,
-                                     uint8_t *value) {
-    asus_ec_result result = validate_fan(fan);
-    if (result != ASUS_EC_OK) {
-        return result;
-    }
-    result = select_fan(fan);
-    if (result != ASUS_EC_OK) {
-        return result;
-    }
+static asus_ec_result read_value(uint8_t operation, uint8_t *value) {
     const uint8_t payload[3] = {0x02, operation, 0x00};
-    return transaction(payload, value);
+    return read_transaction(payload, value);
 }
 
 asus_ec_result asus_ec_open(void) {
     if (io_open) {
         return ASUS_EC_OK;
     }
-    if (ioperm(ASUS_EC_DATA_PORT, 2, 1) != 0) {
+    if (PORT_IOPERM(ASUS_EC_DATA_PORT, 2, 1) != 0) {
         return ASUS_EC_ERR_PERMISSION;
     }
     io_open = true;
@@ -143,7 +167,7 @@ asus_ec_result asus_ec_open(void) {
 
 void asus_ec_close(void) {
     if (io_open) {
-        (void)ioperm(ASUS_EC_DATA_PORT, 2, 0);
+        (void)PORT_IOPERM(ASUS_EC_DATA_PORT, 2, 0);
         io_open = false;
     }
 }
@@ -152,7 +176,7 @@ asus_ec_result asus_ec_status(uint8_t *status) {
     if (!io_open || status == NULL) {
         return ASUS_EC_ERR_PROTOCOL;
     }
-    *status = inb(ASUS_EC_COMMAND_PORT);
+    *status = PORT_IN(ASUS_EC_COMMAND_PORT);
     return ASUS_EC_OK;
 }
 
@@ -161,7 +185,7 @@ asus_ec_result asus_ec_fan_count(uint8_t *count) {
         return ASUS_EC_ERR_PROTOCOL;
     }
     const uint8_t payload[3] = {0x02, 0x30, 0x00};
-    return transaction(payload, count);
+    return read_transaction(payload, count);
 }
 
 asus_ec_result asus_ec_rpm(uint8_t fan, uint16_t *rpm) {
@@ -170,11 +194,19 @@ asus_ec_result asus_ec_rpm(uint8_t fan, uint16_t *rpm) {
     if (!io_open || rpm == NULL) {
         return ASUS_EC_ERR_PROTOCOL;
     }
-    asus_ec_result result = read_fan_value(fan, 0x33, &low);
+    asus_ec_result result = validate_fan(fan);
     if (result != ASUS_EC_OK) {
         return result;
     }
-    result = read_fan_value(fan, 0x34, &high);
+    result = select_fan(fan);
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    result = read_value(0x34, &high);
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    result = read_value(0x33, &low);
     if (result != ASUS_EC_OK) {
         return result;
     }
@@ -187,7 +219,15 @@ asus_ec_result asus_ec_test_mode(uint8_t fan, uint8_t *enabled) {
     if (!io_open || enabled == NULL) {
         return ASUS_EC_ERR_PROTOCOL;
     }
-    const asus_ec_result result = read_fan_value(fan, 0x31, &value);
+    asus_ec_result result = validate_fan(fan);
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    result = select_fan(fan);
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    result = read_value(0x31, &value);
     if (result != ASUS_EC_OK) {
         return result;
     }
@@ -208,18 +248,13 @@ asus_ec_result asus_ec_set_percent(uint8_t fan, uint8_t percent) {
         return result;
     }
     const uint8_t enable[3] = {0x82, 0x31, 0x01};
-    result = transaction(enable, NULL);
+    result = write_transaction(enable);
     if (result != ASUS_EC_OK) {
         return result;
     }
     const uint8_t pwm = (uint8_t)(((unsigned int)percent * 255U + 50U) / 100U);
     const uint8_t set_pwm[3] = {0x82, 0x35, pwm};
-    result = transaction(set_pwm, NULL);
-    if (result != ASUS_EC_OK) {
-        const uint8_t disable[3] = {0x82, 0x31, 0x00};
-        (void)transaction(disable, NULL);
-    }
-    return result;
+    return write_transaction(set_pwm);
 }
 
 asus_ec_result asus_ec_restore(uint8_t fan) {
@@ -235,7 +270,12 @@ asus_ec_result asus_ec_restore(uint8_t fan) {
         return result;
     }
     const uint8_t disable[3] = {0x82, 0x31, 0x00};
-    return transaction(disable, NULL);
+    result = write_transaction(disable);
+    if (result != ASUS_EC_OK) {
+        return result;
+    }
+    const uint8_t zero_pwm[3] = {0x82, 0x35, 0x00};
+    return write_transaction(zero_pwm);
 }
 
 const char *asus_ec_error_code(asus_ec_result result) {
@@ -245,6 +285,7 @@ const char *asus_ec_error_code(asus_ec_result result) {
     case ASUS_EC_ERR_TIMEOUT_OBF: return "EC_TIMEOUT_OBF";
     case ASUS_EC_ERR_DRAIN: return "EC_DRAIN_FAILED";
     case ASUS_EC_ERR_PROTOCOL: return "EC_PROTOCOL_ERROR";
+    case ASUS_EC_ERR_VERIFY: return "EC_VERIFY_FAILED";
     case ASUS_EC_OK: return "OK";
     }
     return "EC_UNKNOWN_ERROR";
@@ -262,6 +303,8 @@ const char *asus_ec_error_message(asus_ec_result result) {
         return "EC output buffer did not drain within the safety limit";
     case ASUS_EC_ERR_PROTOCOL:
         return "The EC returned an invalid value or the request was invalid";
+    case ASUS_EC_ERR_VERIFY:
+        return "The EC did not confirm the requested fan control mode";
     case ASUS_EC_OK: return "Success";
     }
     return "Unknown EC error";

@@ -3,5 +3,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 helper/asus-ec-fan-helper
+helper/test-asus-ec-protocol
 data/*.db
 data/*.db-*

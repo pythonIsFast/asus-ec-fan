@@ -62,7 +62,9 @@ class MockFanBackend(FanHardwareBackend):
     def restore(self, fan_index: int) -> None:
         self._check_failure()
         fan = self._validate(fan_index)
-        self.operations.extend([("select", fan), ("disable-test-mode", fan)])
+        self.operations.extend(
+            [("select", fan), ("disable-test-mode", fan), ("set-pwm", fan, 0)]
+        )
         self.test_modes[fan] = False
         self.percents[fan] = None
         self.rpms[fan] = 3800

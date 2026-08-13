@@ -14,8 +14,11 @@ from werkzeug.serving import BaseWSGIServer, make_server
 
 from backend.api import create_app
 from backend.config import AppConfig, is_supported_model, read_system_model
+from backend.curve_service import CurveController, CurveError
 from backend.database import Database
 from backend.fan_service import FanService
+from backend.instance_lock import ApplicationAlreadyRunning, ApplicationLock
+from backend.profile_service import ProfileService
 from backend.temperature_service import TemperatureService
 from hardware.helper_client import NativeHelperBackend
 from hardware.mock_backend import MockFanBackend
@@ -75,14 +78,32 @@ def main() -> int:
         writes_allowed = is_supported_model(model)
 
     database = Database(args.database)
+    instance_lock = ApplicationLock(args.database.with_suffix(".lock"))
+    try:
+        instance_lock.acquire()
+    except ApplicationAlreadyRunning as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     service = FanService(
         hardware,
         model=model,
         writes_allowed=writes_allowed,
         mock_mode=args.mock,
     )
+    temperature_service = TemperatureService()
+    curve_controller = CurveController(
+        service,
+        temperature_service,
+        lambda: database.get_settings()["poll_interval_ms"] / 1000.0,
+    )
+    profile_service = ProfileService(database, service, curve_controller)
     flask_app = create_app(
-        service, database, TemperatureService(), PROJECT_ROOT / "frontend"
+        service,
+        database,
+        temperature_service,
+        PROJECT_ROOT / "frontend",
+        curve_controller,
+        profile_service,
     )
     server = LocalServer(flask_app, "127.0.0.1", args.port)
     cleanup_lock = threading.Lock()
@@ -94,6 +115,10 @@ def main() -> int:
             if cleaned_up:
                 return
             cleaned_up = True
+            try:
+                curve_controller.stop(restore=True)
+            except CurveError as exc:
+                print(f"Warning: failed to stop curve controller: {exc.message}", file=sys.stderr)
             failures = service.restore_session_owned()
             if failures:
                 for failure in failures:
@@ -106,6 +131,7 @@ def main() -> int:
                 server.stop()
             except (RuntimeError, OSError):
                 pass
+            instance_lock.release()
 
     atexit.register(cleanup)
     server.start()
@@ -129,6 +155,7 @@ def main() -> int:
 
     try:
         import webview
+        from webview.errors import WebViewException
     except ImportError:
         cleanup()
         print("pywebview is not installed. Run 'make setup' or use --no-gui.", file=sys.stderr)
@@ -140,7 +167,7 @@ def main() -> int:
         server.url,
         width=settings["window_width"],
         height=settings["window_height"],
-        min_size=(520, 560),
+        min_size=(800, 600),
     )
 
     def close_on_signal() -> None:
@@ -152,7 +179,16 @@ def main() -> int:
 
     threading.Thread(target=close_on_signal, name="signal-window-close", daemon=True).start()
     try:
-        webview.start(debug=False)
+        # The project installs pywebview's PySide6 extra. Selecting Qt explicitly
+        # avoids a noisy GTK probe and keeps the isolated virtualenv self-contained.
+        webview.start(gui="qt", debug=False)
+    except WebViewException as exc:
+        print(
+            f"Unable to start the desktop window: {exc}\n"
+            "Run 'make setup' to install the Qt backend, or use '--no-gui'.",
+            file=sys.stderr,
+        )
+        return 2
     finally:
         cleanup()
     return 0

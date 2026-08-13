@@ -11,7 +11,7 @@ def test_settings_are_persisted_and_merged_with_defaults(tmp_path):
     database = Database(path)
     updated = database.update_settings({"poll_interval_ms": 1500, "telemetry_enabled": True})
     assert updated["poll_interval_ms"] == 1500
-    assert updated["window_width"] == 720
+    assert updated["window_width"] == 1120
     assert Database(path).get_settings()["telemetry_enabled"] is True
 
 

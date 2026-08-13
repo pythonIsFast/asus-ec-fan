@@ -8,69 +8,246 @@
     <link rel="stylesheet" href="/assets/style.css">
   </head>
   <body>
-    <main class="app-shell">
-      <header class="app-header">
-        <div>
-          <p class="eyebrow">Linux embedded-controller utility</p>
-          <h1>ASUS EC Fan</h1>
+    <div class="app-frame">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 14.5c2.4-5.8 7.1-8.7 16-8.5-2.1 1-3.9 2.4-5.3 4.1 2 .3 3.7 1 5.3 2.1-7.8-.5-12.4 1.8-16 6.8 0-1.5 0-3 .1-4.5Z"/></svg>
+          </span>
+          <span>ASUS EC Fan</span>
         </div>
-        <span id="connectionBadge" class="badge badge-waiting">Connecting</span>
-      </header>
 
-      <section class="status-grid" aria-label="System status">
-        <article class="metric metric-wide">
-          <span class="metric-label">Device</span>
-          <strong id="deviceModel">Detecting…</strong>
-          <span id="supportStatus" class="metric-detail">Checking compatibility</span>
-        </article>
-        <article class="metric">
-          <span class="metric-label">CPU</span>
-          <strong><span id="cpuTemperature">—</span><small> °C</small></strong>
-          <span class="metric-detail">Live temperature</span>
-        </article>
-        <article class="metric">
-          <span class="metric-label">Fan <span id="fanIndexLabel">0</span></span>
-          <strong><span id="fanRpm">—</span><small> RPM</small></strong>
-          <span class="metric-detail">Current speed</span>
-        </article>
-        <article class="metric metric-wide mode-metric">
-          <span class="metric-label">Control mode</span>
-          <strong id="fanMode">—</strong>
-          <span id="modeDetail" class="metric-detail">Waiting for hardware</span>
-        </article>
-      </section>
+        <nav class="nav-list">
+          <button class="nav-item is-active" type="button" data-view="dashboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+            Dashboard
+          </button>
+          <button class="nav-item" type="button" data-view="control">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6"/></svg>
+            Fan Control
+          </button>
+          <button class="nav-item" type="button" data-view="curves">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18c4-1 4-8 8-8s4-5 8-5M4 4v16h16"/></svg>
+            Curves
+          </button>
+          <button class="nav-item" type="button" data-view="sensors">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14.8V5a3 3 0 0 1 6 0v9.8a5 5 0 1 1-6 0ZM12 7v10"/></svg>
+            Sensors
+          </button>
+          <button class="nav-item" type="button" data-view="profiles">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v14H4zM8 6V4h8v2M8 11h8"/></svg>
+            Profiles
+          </button>
+          <button class="nav-item" type="button" data-view="settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7ZM19 12l2-1-2-3-2 .5-1.5-1L15 5h-6L8.5 7.5l-1.5 1L5 8l-2 3 2 1v2l-2 1 2 3 2-.5 1.5 1L9 21h6l.5-2.5 1.5-1 2 .5 2-3-2-1v-2Z"/></svg>
+            Settings
+          </button>
+          <button class="nav-item" type="button" data-view="about">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM12 11v6M12 7h.01"/></svg>
+            About
+          </button>
+        </nav>
 
-      <section class="control-panel" aria-labelledby="manualHeading">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Explicit control</p>
-            <h2 id="manualHeading">Manual fan speed</h2>
+        <div class="sidebar-foot">
+          <div class="device-mini">
+            <span id="sidebarStatusDot" class="status-dot"></span>
+            <div>
+              <strong id="sidebarDevice">Detecting device</strong>
+              <span id="sidebarConnection">Connecting…</span>
+            </div>
           </div>
-          <output id="percentOutput" for="speedSlider">70%</output>
         </div>
+      </aside>
 
-        <input id="speedSlider" type="range" min="1" max="100" value="70" step="1">
-        <div class="range-labels" aria-hidden="true"><span>1%</span><span>100%</span></div>
+      <main class="main-area">
+        <header class="topbar">
+          <button id="menuButton" class="icon-button menu-button" type="button" aria-label="Toggle navigation">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div class="topbar-spacer"></div>
+          <span id="connectionBadge" class="status-pill"><span class="status-dot"></span>Connecting</span>
+          <button id="globalRestoreButton" class="button button-quiet" type="button" disabled>
+            Restore firmware
+          </button>
+        </header>
 
-        <p class="safety-note">
-          Moving the slider does not change the fan. Select Apply to enter ASUS test mode.
-        </p>
-        <div class="actions">
-          <button id="applyButton" class="button button-primary" type="button">Apply manual speed</button>
-          <button id="restoreButton" class="button button-secondary" type="button">Restore firmware control</button>
+        <div class="content">
+          <section class="view is-visible" data-view-panel="dashboard" aria-labelledby="dashboardTitle">
+            <div class="page-heading">
+              <div>
+                <p class="kicker">Overview</p>
+                <h1 id="dashboardTitle">Dashboard</h1>
+                <p>Live thermal and fan status for your ASUS laptop.</p>
+              </div>
+              <span id="lastUpdated" class="updated-label">Not updated yet</span>
+            </div>
+
+            <div class="metric-row">
+              <article class="metric-card">
+                <div class="metric-icon temperature-icon">
+                  <svg viewBox="0 0 24 24"><path d="M9 14.8V5a3 3 0 0 1 6 0v9.8a5 5 0 1 1-6 0ZM12 7v10"/></svg>
+                </div>
+                <div>
+                  <span class="label">CPU temperature</span>
+                  <strong><span id="cpuTemperature">—</span><small>°C</small></strong>
+                  <span class="subtle">Live sensor reading</span>
+                </div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-icon fan-icon">
+                  <svg viewBox="0 0 24 24"><path d="M12 12c-1-5 1-8 4-8 2 0 3 2 2 4-1 2-3 3-6 4Zm0 0c5-1 8 1 8 4 0 2-2 3-4 2-2-1-3-3-4-6Zm0 0c1 5-1 8-4 8-2 0-3-2-2-4 1-2 3-3 6-4Zm0 0c-5 1-8-1-8-4 0-2 2-3 4-2 2 1 3 3 4 6Z"/></svg>
+                </div>
+                <div>
+                  <span class="label">Fan <span id="fanIndexLabel">0</span></span>
+                  <strong><span id="fanRpm">—</span><small>RPM</small></strong>
+                  <span class="subtle">Current fan speed</span>
+                </div>
+              </article>
+            </div>
+
+            <article class="panel chart-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Temperature / RPM history</h2>
+                  <p>Live readings from the current session</p>
+                </div>
+                <div class="chart-legend" aria-label="Chart legend">
+                  <span><i class="legend-temp"></i>Temperature</span>
+                  <span><i class="legend-rpm"></i>Fan RPM</span>
+                </div>
+              </div>
+              <div class="chart-wrap">
+                <canvas id="historyChart" role="img" aria-label="Live CPU temperature and fan RPM chart"></canvas>
+                <div id="chartEmpty" class="chart-empty">Waiting for live readings…</div>
+              </div>
+            </article>
+
+            <article class="panel mode-strip">
+              <div class="mode-item">
+                <span class="label">Control mode</span>
+                <div><span id="modeDot" class="status-dot mode-dot"></span><strong id="fanMode">—</strong></div>
+              </div>
+              <div class="mode-item">
+                <span class="label">Profile</span>
+                <strong id="activeProfile">Balanced</strong>
+              </div>
+              <div class="mode-description" id="modeDetail">Waiting for hardware</div>
+              <button class="button button-secondary" type="button" data-open-view="control">Open fan control</button>
+            </article>
+          </section>
+
+          <section class="view" data-view-panel="control" aria-labelledby="controlTitle">
+            <div class="page-heading">
+              <div><p class="kicker">Fan 0</p><h1 id="controlTitle">Fan Control</h1><p>Apply a fixed speed or return control to ASUS firmware.</p></div>
+            </div>
+            <div class="control-layout">
+              <article class="panel control-card">
+                <div class="panel-head">
+                  <div><h2>Manual fan speed</h2><p>Changes require explicit confirmation</p></div>
+                  <output id="percentOutput" for="speedSlider">70%</output>
+                </div>
+                <input id="speedSlider" type="range" min="1" max="100" value="70" step="1">
+                <div class="range-labels"><span>Quiet</span><span>Maximum</span></div>
+                <div class="notice">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Zm0 6v5M12 17h.01"/></svg>
+                  <p>Moving the slider does not change hardware. Apply explicitly enables ASUS test mode.</p>
+                </div>
+                <div class="actions">
+                  <button id="applyButton" class="button button-primary" type="button" disabled>Apply manual speed</button>
+                  <button id="restoreButton" class="button button-secondary" type="button" disabled>Restore firmware control</button>
+                </div>
+              </article>
+              <aside class="panel current-state">
+                <span class="label">Current state</span>
+                <div class="state-value"><span id="controlModeDot" class="status-dot"></span><strong id="controlMode">—</strong></div>
+                <dl>
+                  <div><dt>Fan speed</dt><dd id="controlRpm">— RPM</dd></div>
+                  <div><dt>Device</dt><dd id="controlDevice">Detecting…</dd></div>
+                  <div><dt>Session ownership</dt><dd id="sessionOwnership">No</dd></div>
+                </dl>
+              </aside>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="curves" aria-labelledby="curvesTitle">
+            <div class="page-heading"><div><p class="kicker">Automation</p><h1 id="curvesTitle">Curves</h1><p>Map CPU temperature to verified fixed fan duty values.</p></div></div>
+            <div class="curve-layout">
+              <article class="panel curve-editor">
+                <div class="panel-head"><div><h2>Temperature curve</h2><p>The app interpolates between points and applies changes explicitly.</p></div></div>
+                <div class="field-row"><label for="curveName">Curve name</label><input id="curveName" type="text" maxlength="60" value="Custom curve"></div>
+                <div class="curve-graph">
+                  <div class="curve-graph-head"><span>Fan duty</span><span id="curvePointValue"><i></i>Select a point</span></div>
+                  <canvas id="curveChart" tabindex="0" role="img" aria-label="Editable fan curve showing fan duty by CPU temperature. Drag points to adjust them and double-click to remove one."></canvas>
+                  <span class="curve-axis-label">CPU temperature</span>
+                </div>
+                <div class="curve-toolbar"><button id="addCurvePoint" class="button button-secondary" type="button">Add point</button><span>Drag to adjust · double-click to remove · 2–8 points</span></div>
+                <div class="notice"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.5 20h19L12 3Zm0 6v5M12 17h.01"/></svg><p>This is a userspace control loop, not an EC curve command. If this session enabled manual mode, stopping the curve restores firmware control.</p></div>
+                <div class="actions">
+                  <button id="startCurveButton" class="button button-primary" type="button" disabled>Start curve</button>
+                  <button id="stopCurveButton" class="button button-secondary" type="button" disabled>Stop &amp; restore</button>
+                  <button id="saveCurveProfileButton" class="button button-secondary" type="button">Save as profile</button>
+                </div>
+              </article>
+              <aside class="panel current-state curve-state">
+                <span class="label">Controller</span>
+                <div class="state-value"><span id="curveStateDot" class="status-dot"></span><strong id="curveState">Stopped</strong></div>
+                <dl>
+                  <div><dt>CPU temperature</dt><dd id="curveTemperature">— °C</dd></div>
+                  <div><dt>Target duty</dt><dd id="curveTarget">— %</dd></div>
+                  <div><dt>Last applied</dt><dd id="curveLastApplied">Never</dd></div>
+                  <div><dt>Restore ownership</dt><dd id="curveOwnership">No</dd></div>
+                </dl>
+                <p id="curveError" class="inline-error" hidden></p>
+              </aside>
+            </div>
+          </section>
+
+          <section class="view" data-view-panel="sensors" aria-labelledby="sensorsTitle">
+            <div class="page-heading"><div><p class="kicker">Live hardware</p><h1 id="sensorsTitle">Sensors</h1><p>Current values read from Linux and the ASUS EC.</p></div></div>
+            <article class="panel table-panel">
+              <div class="sensor-row"><span><i class="sensor-dot temp"></i>CPU package</span><strong id="sensorCpu">— °C</strong><em>/sys/class/hwmon</em></div>
+              <div class="sensor-row"><span><i class="sensor-dot rpm"></i>Fan 0 speed</span><strong id="sensorRpm">— RPM</strong><em>ASUS EC</em></div>
+              <div class="sensor-row"><span><i class="sensor-dot mode"></i>Test mode</span><strong id="sensorMode">—</strong><em>ASUS EC</em></div>
+              <div class="sensor-row"><span><i class="sensor-dot ec"></i>EC status</span><strong id="sensorEcStatus">—</strong><em>OBF / IBF</em></div>
+              <div class="sensor-row"><span><i class="sensor-dot controller"></i>Curve controller</span><strong id="sensorController">Stopped</strong><em>Userspace</em></div>
+            </article>
+          </section>
+
+          <section class="view" data-view-panel="profiles" aria-labelledby="profilesTitle">
+            <div class="page-heading"><div><p class="kicker">Presets</p><h1 id="profilesTitle">Profiles</h1><p>Safe control presets for verified hardware.</p></div></div>
+            <form id="profileForm" class="panel profile-create">
+              <div><label for="profileName">Name</label><input id="profileName" type="text" maxlength="60" placeholder="My profile" required></div>
+              <div><label for="profileMode">Mode</label><select id="profileMode"><option value="manual">Fixed manual</option><option value="curve">Current curve</option><option value="firmware">Firmware</option></select></div>
+              <div id="profilePercentField"><label for="profilePercent">Fan duty</label><div class="input-suffix"><input id="profilePercent" type="number" min="1" max="100" value="70"><span>%</span></div></div>
+              <button class="button button-primary" type="submit">Create profile</button>
+            </form>
+            <div id="profileGrid" class="profile-grid"></div>
+          </section>
+
+          <section class="view" data-view-panel="settings" aria-labelledby="settingsTitle">
+            <div class="page-heading"><div><p class="kicker">Application</p><h1 id="settingsTitle">Settings</h1><p>Polling and optional local telemetry storage.</p></div></div>
+            <form id="settingsForm" class="panel settings-form">
+              <label><span><strong>Live refresh</strong><small>Automatically update sensor values</small></span><input id="liveRefresh" type="checkbox" checked></label>
+              <label><span><strong>Polling interval</strong><small>How often live data is requested</small></span><select id="pollInterval"><option value="1000">1 second</option><option value="2000">2 seconds</option><option value="5000">5 seconds</option><option value="10000">10 seconds</option></select></label>
+              <label><span><strong>Telemetry history</strong><small>Store bounded history in local SQLite</small></span><input id="telemetryEnabled" type="checkbox"></label>
+              <label><span><strong>Retention</strong><small>Delete telemetry older than this period</small></span><select id="retentionDays"><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></label>
+              <div class="settings-actions"><button class="button button-primary" type="submit">Save settings</button></div>
+            </form>
+          </section>
+
+          <section class="view" data-view-panel="about" aria-labelledby="aboutTitle">
+            <div class="page-heading"><div><p class="kicker">System</p><h1 id="aboutTitle">About</h1><p>ASUS EC Fan hardware and application information.</p></div></div>
+            <article class="panel about-card">
+              <div class="about-brand"><span class="brand-mark"><svg viewBox="0 0 24 24"><path d="M4 14.5c2.4-5.8 7.1-8.7 16-8.5-2.1 1-3.9 2.4-5.3 4.1 2 .3 3.7 1 5.3 2.1-7.8-.5-12.4 1.8-16 6.8 0-1.5 0-3 .1-4.5Z"/></svg></span><div><h2>ASUS EC Fan</h2><p>Safe Linux fan control for verified ASUS laptops.</p></div></div>
+              <dl><div><dt>Detected device</dt><dd id="deviceModel">Detecting…</dd></div><div><dt>Compatibility</dt><dd id="supportStatus">Checking…</dd></div><div><dt>Backend</dt><dd id="backendMode">—</dd></div><div><dt>License</dt><dd>GPL-3.0</dd></div></dl>
+            </article>
+          </section>
+
+          <div id="message" class="toast" role="status" aria-live="polite">Ready.</div>
         </div>
-      </section>
-
-      <div id="message" class="message" role="status" aria-live="polite">Ready.</div>
-
-      <footer>
-        <label class="refresh-label" for="liveRefresh">
-          <input id="liveRefresh" type="checkbox" checked>
-          Live refresh
-        </label>
-        <span id="lastUpdated">Not updated yet</span>
-      </footer>
-    </main>
+      </main>
+    </div>
+    <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
     <script src="/assets/app.js" defer></script>
   </body>
 </html>

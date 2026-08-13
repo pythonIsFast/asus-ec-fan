@@ -4,7 +4,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-SUPPORTED_MODELS = frozenset({"ASUS BR1402FGA", "BR1402FGA"})
+SUPPORTED_MODELS = frozenset(
+    {"ASUS BR1402FGA", "BR1402FGA", "ASUS BR1402FGA_BR1402FGA"}
+)
 
 
 def read_system_model(path: str | Path = "/sys/class/dmi/id/product_name") -> str:
@@ -40,10 +42,8 @@ class AppConfig:
     @classmethod
     def defaults(cls, project_root: Path) -> "AppConfig":
         installed_helper = Path("/usr/local/libexec/asus-ec-fan-helper")
-        local_helper = project_root / "helper" / "asus-ec-fan-helper"
-        helper = installed_helper if installed_helper.exists() else local_helper
         return cls(
             project_root=project_root,
             database_path=default_data_dir() / "app.db",
-            helper_path=helper,
+            helper_path=installed_helper,
         )

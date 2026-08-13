@@ -1,0 +1,3 @@
+# Installed as /etc/sudoers.d/asus-ec-fan by `sudo make install-helper`.
+# The binary is root-owned and exposes only its fixed, validated command set.
+%asus-ec-fan ALL=(root) NOPASSWD: /usr/local/libexec/asus-ec-fan-helper *

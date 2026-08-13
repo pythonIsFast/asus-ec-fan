@@ -15,7 +15,11 @@ def test_mock_manual_and_restore_follow_verified_order():
 
     backend.operations.clear()
     backend.restore(0)
-    assert backend.operations == [("select", 0), ("disable-test-mode", 0)]
+    assert backend.operations == [
+        ("select", 0),
+        ("disable-test-mode", 0),
+        ("set-pwm", 0, 0),
+    ]
     assert backend.test_modes[0] is False
 
 
