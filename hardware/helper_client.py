@@ -1,0 +1,109 @@
+"""Single subprocess boundary for the privileged native helper."""
+
+from __future__ import annotations
+
+import json
+import subprocess
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Any, Sequence
+
+from .protocol import validate_percent
+
+
+class HardwareError(RuntimeError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+class FanHardwareBackend(ABC):
+    @abstractmethod
+    def get_status(self) -> dict[str, Any]: ...
+
+    @abstractmethod
+    def get_fan_count(self) -> int: ...
+
+    @abstractmethod
+    def get_rpm(self, fan_index: int) -> int: ...
+
+    @abstractmethod
+    def get_test_mode(self, fan_index: int) -> bool: ...
+
+    @abstractmethod
+    def set_percent(self, fan_index: int, percent: int) -> None: ...
+
+    @abstractmethod
+    def restore(self, fan_index: int) -> None: ...
+
+
+class NativeHelperBackend(FanHardwareBackend):
+    """Calls only the helper's fixed, validated command vocabulary."""
+
+    def __init__(
+        self,
+        helper_path: str | Path,
+        *,
+        use_sudo: bool = True,
+        timeout_seconds: float = 2.0,
+    ) -> None:
+        path = Path(helper_path).expanduser()
+        self._prefix: list[str] = [str(path)]
+        if use_sudo:
+            self._prefix = ["sudo", "-n", str(path)]
+        self._timeout_seconds = timeout_seconds
+
+    def _run(self, arguments: Sequence[str]) -> dict[str, Any]:
+        command = [*self._prefix, *arguments]
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HardwareError(
+                "HELPER_TIMEOUT", "The privileged EC helper did not finish in time"
+            ) from exc
+        except OSError as exc:
+            raise HardwareError("HELPER_UNAVAILABLE", str(exc)) from exc
+
+        output = completed.stdout.strip()
+        try:
+            payload = json.loads(output)
+        except (json.JSONDecodeError, TypeError) as exc:
+            detail = completed.stderr.strip() or "Helper returned invalid output"
+            raise HardwareError("HELPER_INVALID_RESPONSE", detail) from exc
+
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            if isinstance(payload, dict):
+                code = str(payload.get("error", "HELPER_FAILED"))
+                message = str(payload.get("message", "EC helper request failed"))
+            else:
+                code, message = "HELPER_INVALID_RESPONSE", "Helper response was not an object"
+            raise HardwareError(code, message)
+        if completed.returncode != 0:
+            raise HardwareError("HELPER_FAILED", "Helper exited unsuccessfully")
+        return payload
+
+    def get_status(self) -> dict[str, Any]:
+        return self._run(["status"])
+
+    def get_fan_count(self) -> int:
+        return int(self._run(["fan-count"])["fan_count"])
+
+    def get_rpm(self, fan_index: int) -> int:
+        return int(self._run(["rpm", str(fan_index)])["rpm"])
+
+    def get_test_mode(self, fan_index: int) -> bool:
+        return bool(self._run(["test-mode", str(fan_index)])["test_mode"])
+
+    def set_percent(self, fan_index: int, percent: int) -> None:
+        value = validate_percent(percent)
+        self._run(["set", str(fan_index), str(value)])
+
+    def restore(self, fan_index: int) -> None:
+        self._run(["restore", str(fan_index)])

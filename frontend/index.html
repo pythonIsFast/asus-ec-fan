@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="app-token" content="{{ app_token }}">
+    <title>ASUS EC Fan</title>
+    <link rel="stylesheet" href="/assets/style.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Linux embedded-controller utility</p>
+          <h1>ASUS EC Fan</h1>
+        </div>
+        <span id="connectionBadge" class="badge badge-waiting">Connecting</span>
+      </header>
+
+      <section class="status-grid" aria-label="System status">
+        <article class="metric metric-wide">
+          <span class="metric-label">Device</span>
+          <strong id="deviceModel">Detecting…</strong>
+          <span id="supportStatus" class="metric-detail">Checking compatibility</span>
+        </article>
+        <article class="metric">
+          <span class="metric-label">CPU</span>
+          <strong><span id="cpuTemperature">—</span><small> °C</small></strong>
+          <span class="metric-detail">Live temperature</span>
+        </article>
+        <article class="metric">
+          <span class="metric-label">Fan <span id="fanIndexLabel">0</span></span>
+          <strong><span id="fanRpm">—</span><small> RPM</small></strong>
+          <span class="metric-detail">Current speed</span>
+        </article>
+        <article class="metric metric-wide mode-metric">
+          <span class="metric-label">Control mode</span>
+          <strong id="fanMode">—</strong>
+          <span id="modeDetail" class="metric-detail">Waiting for hardware</span>
+        </article>
+      </section>
+
+      <section class="control-panel" aria-labelledby="manualHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Explicit control</p>
+            <h2 id="manualHeading">Manual fan speed</h2>
+          </div>
+          <output id="percentOutput" for="speedSlider">70%</output>
+        </div>
+
+        <input id="speedSlider" type="range" min="1" max="100" value="70" step="1">
+        <div class="range-labels" aria-hidden="true"><span>1%</span><span>100%</span></div>
+
+        <p class="safety-note">
+          Moving the slider does not change the fan. Select Apply to enter ASUS test mode.
+        </p>
+        <div class="actions">
+          <button id="applyButton" class="button button-primary" type="button">Apply manual speed</button>
+          <button id="restoreButton" class="button button-secondary" type="button">Restore firmware control</button>
+        </div>
+      </section>
+
+      <div id="message" class="message" role="status" aria-live="polite">Ready.</div>
+
+      <footer>
+        <label class="refresh-label" for="liveRefresh">
+          <input id="liveRefresh" type="checkbox" checked>
+          Live refresh
+        </label>
+        <span id="lastUpdated">Not updated yet</span>
+      </footer>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
