@@ -28,6 +28,21 @@ from hardware.mock_backend import MockFanBackend
 PROJECT_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 
 
+def unblock_bundled_files(root: Path) -> None:
+    """Strip the NTFS "Zone.Identifier" stream Windows attaches to files
+    extracted from a downloaded ZIP. With that mark still set, .NET Framework
+    refuses to load pythonnet's Python.Runtime.dll from the bundle, which
+    surfaces as "Failed to resolve Python.Runtime.Loader.Initialize" when
+    pywebview's edgechromium backend imports clr. This mirrors right-clicking
+    the file and choosing "Unblock"."""
+    for path in root.rglob("*"):
+        if path.is_file():
+            try:
+                os.remove(f"{path}:Zone.Identifier")
+            except OSError:
+                pass
+
+
 def process_is_elevated() -> bool:
     if platform.system() == "Windows":
         try:
@@ -173,6 +188,9 @@ def main() -> int:
         finally:
             cleanup()
         return 0
+
+    if platform.system() == "Windows":
+        unblock_bundled_files(PROJECT_ROOT)
 
     try:
         import webview

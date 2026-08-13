@@ -211,6 +211,13 @@ Run `make setup` again and install any shared library named in the Qt error. Use
 </details>
 
 <details>
+<summary><strong>Windows: "Failed to resolve Python.Runtime.Loader.Initialize"</strong></summary>
+
+Windows marks files extracted from a downloaded ZIP as coming from the internet (Mark of the Web). .NET Framework then refuses to load the bundled `Python.Runtime.dll`, which pywebview's desktop window needs. The app clears this mark from its own bundle on startup; if the error still appears (e.g. antivirus reapplied it, or the folder is read-only), right-click the ZIP before extracting → Properties → check **Unblock** → OK, then re-extract, or run `Unblock-File -Path .\asus-ec-fan-*.zip` in PowerShell first.
+
+</details>
+
+<details>
 <summary><strong>Windows driver missing, untrusted, or mode Unknown</strong></summary>
 
 Install or repair MyASUS, ASUS System Control Interface, and ASUS System Analysis. Unsigned replacement DLLs are rejected. If mode is **Unknown**, select Restore once before Apply.
