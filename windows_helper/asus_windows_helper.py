@@ -111,7 +111,8 @@ def verify_asus_signature(path: Path) -> None:
     if result.returncode != 0 or payload.get("Status") != "Valid" or "ASUSTEK" not in subject.upper():
         raise HelperError(
             "ASUS_DLL_UNTRUSTED",
-            f"The installed ASUS DLL has no valid ASUS signature (status={payload.get('Status')!r})",
+            "The installed ASUS DLL has no valid ASUS signature "
+            f"(status={payload.get('Status')!r}, subject={subject!r})",
         )
 
 
