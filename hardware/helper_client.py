@@ -13,6 +13,7 @@ from typing import Any, Sequence
 from .protocol import validate_percent
 
 HELPER_API_VERSION = 2
+_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class HardwareError(RuntimeError):
@@ -102,6 +103,7 @@ class NativeHelperBackend(FanHardwareBackend):
                 text=True,
                 timeout=self._timeout_seconds,
                 check=False,
+                creationflags=_NO_WINDOW_FLAGS,
             )
         except subprocess.TimeoutExpired as exc:
             raise HardwareError(

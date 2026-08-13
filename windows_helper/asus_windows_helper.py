@@ -6,6 +6,7 @@ This executable accepts only the fixed fan operations used by the application.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import glob
 import json
@@ -20,6 +21,7 @@ from typing import Any, Callable, Iterator, Sequence
 HELPER_API_VERSION = 2
 MAX_FANS = 8
 MUTEX_TIMEOUT_MS = 5_000
+_NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 class HelperError(RuntimeError):
@@ -65,25 +67,52 @@ def find_asus_dll() -> Path:
 
 
 def verify_asus_signature(path: Path) -> None:
+    # The path is embedded as base64 rather than passed as a trailing argument
+    # so quoting/$args binding can't misdirect -Command, and -ExecutionPolicy
+    # Bypass keeps a machine-wide Restricted/AllSigned policy from silently
+    # blocking this single invocation.
+    encoded_path = base64.b64encode(str(path).encode("utf-16-le")).decode("ascii")
     script = (
-        "$s=Get-AuthenticodeSignature -LiteralPath $args[0];"
+        f"$p=[System.Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded_path}'));"
+        "$s=Get-AuthenticodeSignature -LiteralPath $p;"
         "[pscustomobject]@{Status=$s.Status.ToString();"
         "Subject=$s.SignerCertificate.Subject}|ConvertTo-Json -Compress"
     )
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+    ]
     try:
         result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script, str(path)],
+            command,
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
+            creationflags=_NO_WINDOW_FLAGS,
         )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise HelperError(
+            "ASUS_DLL_UNTRUSTED", f"Could not run powershell.exe to verify the ASUS DLL signature: {exc}"
+        ) from exc
+    try:
         payload = json.loads(result.stdout)
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
-        raise HelperError("ASUS_DLL_UNTRUSTED", "Could not verify the ASUS DLL signature") from exc
+    except json.JSONDecodeError as exc:
+        detail = result.stderr.strip() or result.stdout.strip() or str(exc)
+        raise HelperError(
+            "ASUS_DLL_UNTRUSTED", f"Could not verify the ASUS DLL signature: {detail}"
+        ) from exc
     subject = str(payload.get("Subject", ""))
     if result.returncode != 0 or payload.get("Status") != "Valid" or "ASUSTEK" not in subject.upper():
-        raise HelperError("ASUS_DLL_UNTRUSTED", "The installed ASUS DLL has no valid ASUS signature")
+        raise HelperError(
+            "ASUS_DLL_UNTRUSTED",
+            f"The installed ASUS DLL has no valid ASUS signature (status={payload.get('Status')!r})",
+        )
 
 
 class AsusDll:
