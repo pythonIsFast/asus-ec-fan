@@ -8,8 +8,9 @@ import stat
 import subprocess
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
+from . import windows_pipe
 from .protocol import validate_percent
 
 HELPER_API_VERSION = 2
@@ -165,19 +166,33 @@ class NativeHelperBackend(FanHardwareBackend):
         self._run(["restore", str(fan_index)])
 
 
-class WindowsAsusBackend(NativeHelperBackend):
-    """Calls the isolated helper that uses an official installed ASUS DLL."""
+class WindowsAsusBackend(FanHardwareBackend):
+    """Talks to the isolated, once-elevated helper over a named pipe.
+
+    The GUI/Flask process must stay unprivileged (docs/security.md), but the
+    official ASUS DLL needs Administrator rights to reach the EC. Rather than
+    elevating (and UAC-prompting) a fresh process for every single command,
+    the helper is started once as a long-lived named-pipe server; this class
+    only elevates it the first time a pipe isn't already there to connect to.
+    """
 
     backend_name = "ASUS System Analysis"
     mode_readback_available = False
 
-    def __init__(self, helper_path: str | Path, *, timeout_seconds: float = 5.0) -> None:
-        super().__init__(
-            helper_path,
-            use_sudo=False,
-            timeout_seconds=timeout_seconds,
-            validate_installation=False,
-        )
+    def __init__(
+        self,
+        helper_path: str | Path,
+        *,
+        timeout_seconds: float = 5.0,
+        pipe_name: str = windows_pipe.PIPE_NAME,
+        connect: Callable[..., windows_pipe.Pipe] = windows_pipe.connect,
+        elevate: Callable[[Path, str], None] = windows_pipe.elevate,
+    ) -> None:
+        self._path = Path(helper_path).expanduser()
+        self._timeout_seconds = timeout_seconds
+        self._pipe_name = pipe_name
+        self._connect = connect
+        self._elevate = elevate
         self._known_test_modes: dict[int, bool] = {}
 
     def _check_installation(self) -> None:
@@ -186,6 +201,54 @@ class WindowsAsusBackend(NativeHelperBackend):
                 "WINDOWS_HELPER_UNAVAILABLE",
                 "The Windows ASUS helper is missing; reinstall ASUS EC Fan",
             )
+
+    def _open_pipe(self) -> windows_pipe.Pipe:
+        try:
+            return self._connect(self._pipe_name, timeout_seconds=0.5)
+        except windows_pipe.PipeError:
+            pass
+
+        try:
+            self._elevate(self._path, self._pipe_name)
+        except windows_pipe.ElevationDeclined as exc:
+            raise HardwareError("HELPER_ELEVATION_DECLINED", str(exc)) from exc
+        except windows_pipe.PipeError as exc:
+            raise HardwareError("HELPER_UNAVAILABLE", str(exc)) from exc
+
+        try:
+            return self._connect(self._pipe_name, timeout_seconds=self._timeout_seconds)
+        except windows_pipe.PipeError as exc:
+            raise HardwareError("HELPER_UNAVAILABLE", str(exc)) from exc
+
+    def _run(self, arguments: Sequence[str]) -> dict[str, Any]:
+        self._check_installation()
+        pipe = self._open_pipe()
+        try:
+            payload = windows_pipe.send_request(pipe, arguments, timeout_seconds=self._timeout_seconds)
+        except windows_pipe.PipeError as exc:
+            raise HardwareError("HELPER_UNAVAILABLE", str(exc)) from exc
+        finally:
+            pipe.close()
+
+        if payload.get("ok") is not True:
+            code = str(payload.get("error", "HELPER_FAILED"))
+            message = str(payload.get("message", "EC helper request failed"))
+            raise HardwareError(code, message)
+        if payload.get("helper_api") != HELPER_API_VERSION:
+            raise HardwareError(
+                "HELPER_VERSION_MISMATCH",
+                "The installed EC helper is outdated; reinstall ASUS EC Fan",
+            )
+        return payload
+
+    def get_status(self) -> dict[str, Any]:
+        return self._run(["status"])
+
+    def get_fan_count(self) -> int:
+        return int(self._run(["fan-count"])["fan_count"])
+
+    def get_rpm(self, fan_index: int) -> int:
+        return int(self._run(["rpm", str(fan_index)])["rpm"])
 
     def get_test_mode(self, fan_index: int) -> bool | None:
         return self._known_test_modes.get(fan_index)
@@ -205,3 +268,16 @@ class WindowsAsusBackend(NativeHelperBackend):
             return None
         temperature = float(value)
         return round(temperature, 1) if -20.0 <= temperature <= 150.0 else None
+
+    def shutdown_helper(self) -> None:
+        """Best-effort: ask the elevated helper to exit so it doesn't linger."""
+        try:
+            pipe = self._connect(self._pipe_name, timeout_seconds=0.2)
+        except windows_pipe.PipeError:
+            return
+        try:
+            windows_pipe.send_request(pipe, [windows_pipe.SHUTDOWN_COMMAND], timeout_seconds=2.0)
+        except windows_pipe.PipeError:
+            pass
+        finally:
+            pipe.close()

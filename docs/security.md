@@ -29,7 +29,9 @@ The sudo rule trusts this helper's restricted parser, so the installed binary an
 
 Windows uses a separate frozen helper process. It exposes only `status`, `fan-count`, `rpm`, `temperature`, `set`, and `restore`; there is no raw port, DLL-export, packet, or command endpoint. It validates fan indices and percentages, serializes operations with a finite-timeout named mutex, and preserves the known restore order.
 
-The proprietary `AsusWinIO64.dll` is never redistributed or downloaded. The helper searches only the official `asussci2.inf_amd64_*` DriverStore package and requires a valid ASUSTeK Authenticode signature. Windows ARM64 rejects real access because the known DLL is AMD64. The Flask/pywebview process stays unprivileged.
+The proprietary `AsusWinIO64.dll` is never redistributed or downloaded. The helper searches only the official `asussci2.inf_amd64_*` DriverStore package and requires a valid ASUSTeK or Microsoft WHQL-attestation Authenticode signature. Windows ARM64 rejects real access because the known DLL is AMD64. The Flask/pywebview process stays unprivileged.
+
+The ASUS DLL needs Administrator rights to reach the EC. Rather than running the whole GUI elevated, the unprivileged process launches the helper elevated through a single UAC prompt the first time hardware access is needed, and the helper then serves every later command over a local named pipe (`\\.\pipe\AsusEcFan.Helper`) for the rest of the session — no per-command prompts, and the GUI/Flask process never itself gains privilege. Each request over that pipe still goes through the same validated find-DLL, verify-signature, locked initialize/execute/shutdown sequence as before; only the process transport changed. Declining the UAC prompt surfaces as a clear error instead of retrying silently. Clean shutdown asks the elevated helper to exit so it does not linger after the app closes.
 
 Because the known DLL API cannot read test mode, manual control is blocked until an explicit Restore establishes a firmware baseline. Clean shutdown restores only a later manual state owned by this process.
 

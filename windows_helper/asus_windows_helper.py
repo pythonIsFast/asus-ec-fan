@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import ctypes.wintypes as wintypes
 import glob
 import json
 import os
@@ -22,6 +23,16 @@ HELPER_API_VERSION = 2
 MAX_FANS = 8
 MUTEX_TIMEOUT_MS = 5_000
 _NO_WINDOW_FLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Named-pipe server mode (see hardware/windows_pipe.py for the client side).
+_PIPE_ACCESS_DUPLEX = 0x00000003
+_PIPE_TYPE_BYTE = 0x00000000
+_PIPE_READMODE_BYTE = 0x00000000
+_PIPE_WAIT = 0x00000000
+_ERROR_PIPE_CONNECTED = 535
+_PIPE_BUFFER_SIZE = 65536
+_INVALID_HANDLE_VALUE = wintypes.HANDLE(-1).value
+SHUTDOWN_COMMAND = "__shutdown__"
 
 
 class HelperError(RuntimeError):
@@ -248,16 +259,117 @@ def run(
             dll.shutdown()
 
 
-def main(arguments: Sequence[str] | None = None) -> int:
+def _dispatch(arguments: Sequence[str]) -> dict[str, Any]:
     try:
-        payload = run(list(arguments if arguments is not None else sys.argv[1:]))
-        exit_code = 0
+        return run(list(arguments))
     except HelperError as exc:
-        payload = {"ok": False, "error": exc.code, "message": exc.message}
-        exit_code = 1
+        return {"ok": False, "error": exc.code, "message": exc.message}
     except Exception:
-        payload = {"ok": False, "error": "HELPER_FAILED", "message": "ASUS helper failed safely"}
-        exit_code = 1
+        return {"ok": False, "error": "HELPER_FAILED", "message": "ASUS helper failed safely"}
+
+
+def _serve_client(handle: int, kernel32: Any) -> bool:
+    """Handle requests on one connection. Returns False once shutdown is requested."""
+    buffer = bytearray()
+    chunk = ctypes.create_string_buffer(4096)
+    read = wintypes.DWORD(0)
+    while True:
+        while b"\n" not in buffer:
+            if not kernel32.ReadFile(handle, chunk, len(chunk), ctypes.byref(read), None):
+                return True  # client disconnected; keep serving future connections
+            if read.value == 0:
+                return True
+            buffer.extend(chunk.raw[: read.value])
+        line, _, rest = buffer.partition(b"\n")
+        buffer = bytearray(rest)
+
+        keep_serving = True
+        try:
+            arguments = json.loads(line.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            arguments = None
+            payload: dict[str, Any] = {
+                "ok": False,
+                "error": "INVALID_REQUEST",
+                "message": "Malformed request",
+            }
+        else:
+            if arguments == [SHUTDOWN_COMMAND]:
+                payload = {"ok": True, "helper_api": HELPER_API_VERSION}
+                keep_serving = False
+            else:
+                payload = _dispatch(arguments)
+
+        response = (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+        written = wintypes.DWORD(0)
+        kernel32.WriteFile(handle, response, len(response), ctypes.byref(written), None)
+        if not keep_serving:
+            return False
+
+
+def serve_forever(pipe_name: str) -> int:
+    """Run as a long-lived, already-elevated server for hardware.windows_pipe clients.
+
+    Every request still goes through the same validated find_asus_dll ->
+    verify_asus_signature -> mutex -> initialize/execute/shutdown sequence as
+    a one-shot invocation (see run()); only the process transport changes, so
+    a single UAC prompt covers the whole app session instead of one per call.
+    """
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
+    kernel32.CreateNamedPipeW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+    ]
+    kernel32.ConnectNamedPipe.argtypes = [wintypes.HANDLE, wintypes.LPVOID]
+    kernel32.DisconnectNamedPipe.argtypes = [wintypes.HANDLE]
+    kernel32.GetLastError.restype = wintypes.DWORD
+
+    while True:
+        handle = kernel32.CreateNamedPipeW(
+            pipe_name,
+            _PIPE_ACCESS_DUPLEX,
+            _PIPE_TYPE_BYTE | _PIPE_READMODE_BYTE | _PIPE_WAIT,
+            1,
+            _PIPE_BUFFER_SIZE,
+            _PIPE_BUFFER_SIZE,
+            0,
+            None,
+        )
+        if handle in (0, _INVALID_HANDLE_VALUE):
+            return 1
+        connected = kernel32.ConnectNamedPipe(handle, None)
+        if not connected and kernel32.GetLastError() != _ERROR_PIPE_CONNECTED:
+            kernel32.CloseHandle(handle)
+            continue
+        try:
+            if not _serve_client(handle, kernel32):
+                return 0
+        finally:
+            kernel32.DisconnectNamedPipe(handle)
+            kernel32.CloseHandle(handle)
+
+
+def main(arguments: Sequence[str] | None = None) -> int:
+    args = list(arguments if arguments is not None else sys.argv[1:])
+    if args and args[0] == "--serve":
+        if len(args) != 2:
+            print(json.dumps({"ok": False, "error": "INVALID_COMMAND", "message": "Usage: --serve <pipe-name>"}))
+            return 1
+        try:
+            return serve_forever(args[1])
+        except Exception:
+            print(json.dumps({"ok": False, "error": "HELPER_FAILED", "message": "ASUS helper server failed"}))
+            return 1
+
+    payload = _dispatch(args)
+    exit_code = 0 if payload.get("ok") else 1
     print(json.dumps(payload, separators=(",", ":")), flush=True)
     return exit_code
 

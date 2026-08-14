@@ -163,6 +163,8 @@ def main() -> int:
                         f"{failure['message']}",
                         file=sys.stderr,
                     )
+            if isinstance(hardware, WindowsAsusBackend):
+                hardware.shutdown_helper()
             try:
                 server.stop()
             except (RuntimeError, OSError):
