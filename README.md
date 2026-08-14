@@ -25,6 +25,9 @@ The first and currently only verified laptop is the **ASUS BR1402FGA**. Unknown 
 > [!CAUTION]
 > This application accesses embedded-controller fan controls. Incorrect EC access can destabilize or damage hardware. Only documented operations are implemented—there is no command scanning, raw EC API, or arbitrary port access.
 
+> [!WARNING]
+> **Windows support is currently extremely unstable** and not recommended for real use yet. Real fan control on Windows still fails on affected machines even after several fixes (console windows, ASUS DLL signature checks, and helper elevation); the Linux path is unaffected. See [Known issues](#windows-support-is-currently-unstable) below before relying on it.
+
 > [!NOTE]
 > 📷 **Screenshot placeholder:** a dashboard screenshot from verified BR1402FGA hardware will be added here.
 
@@ -48,7 +51,7 @@ The first and currently only verified laptop is the **ASUS BR1402FGA**. Unknown 
 | --- | --- | :---: | :---: | --- |
 | Linux | x86-64 | ✅ | ✅ BR1402FGA | Restricted native C port-I/O helper |
 | Linux | ARM64 | ✅ | ❌ | Mock mode only |
-| Windows | x86-64 | ✅ | ✅ BR1402FGA | Official ASUS System Analysis driver |
+| Windows | x86-64 | ✅ | ⚠️ Unstable, BR1402FGA | Official ASUS System Analysis driver |
 | Windows | ARM64 | ✅ | ❌ | Mock mode only; ASUS driver is AMD64 |
 
 Real writes require an exact model match. Verified DMI names are:
@@ -181,6 +184,16 @@ SQLite stores settings, profiles, events, and optional telemetry. It is never tr
 Telemetry is disabled by default. When enabled, samples are rate-limited and data older than the configured retention period is deleted automatically.
 
 ## Troubleshooting
+
+### Windows support is currently unstable
+
+Real fan control on Windows has repeatedly failed on affected hardware even after several targeted fixes: a `pywebview`/pythonnet DLL-load error, a false-negative ASUS driver signature check, and the helper needing Administrator rights it never requested. The current state:
+
+- The helper now elevates itself once via a UAC prompt and talks to the ASUS driver over a named pipe for the rest of the session (see [`docs/security.md`](docs/security.md)).
+- Despite that, `fan-count`/EC access has continued to fail on at least one real device after each fix so far, with no further diagnostic output yet available from that hardware.
+- Linux fan control is unaffected by any of this.
+
+If you hit a Windows error, please open an issue with the exact error text and the app version — the messages are intentionally specific (they include the actual driver response, signature subject, etc.) to make root-causing this remotely possible.
 
 <details>
 <summary><strong>Unsupported hardware</strong></summary>
