@@ -108,7 +108,18 @@ def verify_asus_signature(path: Path) -> None:
             "ASUS_DLL_UNTRUSTED", f"Could not verify the ASUS DLL signature: {detail}"
         ) from exc
     subject = str(payload.get("Subject", ""))
-    if result.returncode != 0 or payload.get("Status") != "Valid" or "ASUSTEK" not in subject.upper():
+    subject_upper = subject.upper()
+    # Windows driver-signing enforcement means a DLL can only reach the
+    # DriverStore path we glob for (find_asus_dll) via a signed driver
+    # install. Modern drivers are commonly submitted through Microsoft's
+    # WHQL/attestation program, which re-signs them with a Microsoft
+    # certificate instead of the vendor's, so accept that publisher too.
+    recognized_signers = ("ASUSTEK", "MICROSOFT WINDOWS HARDWARE COMPATIBILITY PUBLISHER")
+    if (
+        result.returncode != 0
+        or payload.get("Status") != "Valid"
+        or not any(signer in subject_upper for signer in recognized_signers)
+    ):
         raise HelperError(
             "ASUS_DLL_UNTRUSTED",
             "The installed ASUS DLL has no valid ASUS signature "
