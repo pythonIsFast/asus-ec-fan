@@ -193,7 +193,12 @@ def execute(arguments: Sequence[str], dll: Any) -> dict[str, Any]:
 
     count = int(dll.fan_count())
     if not 1 <= count <= MAX_FANS:
-        raise HelperError("INVALID_FAN_COUNT", "ASUS driver returned an invalid fan count")
+        raise HelperError(
+            "INVALID_FAN_COUNT",
+            f"ASUS driver returned an invalid fan count ({count}); it may need "
+            "Administrator privileges to access the EC, or MyASUS/ASUS System "
+            "Control Interface may need a repair install",
+        )
     base: dict[str, Any] = {"ok": True, "helper_api": HELPER_API_VERSION}
     if command == "status":
         return {**base, "status": None, "source": "asus-driver", "dll_verified": True}
